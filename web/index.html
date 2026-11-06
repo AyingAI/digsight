@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DIGSIGHT：基于 pi SDK 与 ego 浏览器的多智能体深度调研工作台。">
+  <title>DIGSIGHT · 多智能体深度调研</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+<symbol id="i-adopt" viewBox="0 0 24 24"><path d="M19 5v6a3 3 0 0 1-3 3H5m5-5-5 5 5 5"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M3 7h9m4 0h5M3 17h3m4 0h11 M12 4v6m-6 4v6"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M4 7h16m-11 0V4h6v3M6 7l1 13h10l1-13m-8 4v5m4-5v5"/></symbol>
+<symbol id="i-history" viewBox="0 0 24 24"><path d="M3.5 10a8.5 8.5 0 1 1 .8 6M3 4v6h6m3-3v5l3 2"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="m3 7 9-5 9 5-9 5-9-5Zm0 5 9 5 9-5m-18 5 9 5 9-5"/></symbol>
+<symbol id="i-compare" viewBox="0 0 48 32"><path d="M16 7V4h27v20h-7" opacity=".55"/><path d="M4 9h29v20H4zM4 15h29m-20 4-3 3 3 3m9-6 3 3-3 3"/></symbol>
+<symbol id="i-trend" viewBox="0 0 48 32"><path d="M5 28h38M9 23v-5m9 5v-8m9 8v-5m9 5v-9" opacity=".55"/><path d="m6 15 12-8 9 5L41 3m-8 0h8v8"/></symbol>
+<symbol id="i-factory" viewBox="0 0 48 32"><path d="M3 29h27m-22-3h16l-2-4H10z" opacity=".55"/><circle cx="16" cy="19" r="3.5"/><circle cx="26" cy="7" r="3"/><path d="m16 15 7-8m-3 12 7-9m2-4 8 3-1 4-8-3m7 3-1 4 3 3m1-11 3 2-1 5"/></symbol>
+<symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m-9 3 9-9m-10 1H5v14h14v-5"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+<symbol id="i-log-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-log-flag" viewBox="0 0 24 24"><path d="M5 21V4m0 1c5-4 9 3 15-1v10c-6 4-10-3-15 1"/></symbol>
+<symbol id="i-log-warn" viewBox="0 0 24 24"><path d="m12 3 10 17H2L12 3Zm0 6v5m0 3h.01"/></symbol>
+<symbol id="i-log-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol></svg>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brandline"><svg class="icon " aria-hidden="true"><use href="#i-layers"></use></svg><strong>Digsight</strong></div>
+      <button id="history-toggle" class="history-toggle" type="button" aria-expanded="false" aria-controls="history-area"><svg class="icon " aria-hidden="true"><use href="#i-history"></use></svg> 历史记录</button>
+      <section id="history-area" class="history-area">
+        <button id="new-run" class="new-run" type="button"><svg class="icon " aria-hidden="true"><use href="#i-plus"></use></svg> 新建调研</button>
+        <h2 class="side-section-head">历史记录</h2>
+        <nav id="run-list" class="run-list" aria-label="历史调研"><div class="side-empty">正在读取…</div></nav>
+      </section>
+      <button id="environment-button" class="side-footer" type="button" aria-haspopup="dialog" aria-controls="setup-dialog">
+        <i class="status-light" aria-hidden="true"></i><span id="environment-status" role="status">检测中</span><svg class="icon " aria-hidden="true"><use href="#i-chevron"></use></svg>
+      </button>
+    </aside>
+
+    <main class="main" id="main" tabindex="-1">
+      <div id="connection-banner" class="connection-banner" role="status" hidden></div>
+      <section id="composer" class="composer">
+        <h1><label for="question">你想研究什么？</label></h1>
+        <form id="run-form" class="run-form" autocomplete="off">
+          <div class="writing-desk">
+            <textarea id="question" name="question" rows="3" maxlength="4000" minlength="6" required aria-describedby="privacy-hint submit-hint form-error"
+              placeholder="写下你的问题，可以带上背景或判断标准…"></textarea>
+            <div class="desk-tools">
+              <button type="button" id="settings-button" class="settings-button" aria-haspopup="dialog" aria-controls="settings-dialog"><svg class="icon " aria-hidden="true"><use href="#i-settings"></use></svg> 调研设置</button>
+              <div class="desk-submit"><span id="char-count" class="char-count" hidden></span>
+                <button type="submit" id="start-btn" class="primary" disabled><span>开始调研</span><svg class="icon " aria-hidden="true"><use href="#i-arrow"></use></svg></button>
+              </div>
+            </div>
+          </div>
+          <p id="privacy-hint" class="privacy-hint">调研内容会发送给所选模型和调研引擎。请勿输入密钥或私密资料。</p>
+          <div class="form-feedback" id="feedback" hidden>
+            <span id="submit-hint" role="status"></span><button id="resolve-hint" type="button" class="inline-link" hidden></button>
+          </div>
+          <p id="form-error" class="form-error" role="alert" hidden></p>
+        </form>
+        <section class="samples" aria-labelledby="sample-title">
+          <h2 id="sample-title">试试这些问题</h2>
+          <div class="sample-index">
+          <button class="sample" data-question="5 人研发团队该怎么选 AI 编程工具？请比较费用、代码隐私和团队协作体验。" type="button"><svg class="icon " aria-hidden="true"><use href="#i-compare"></use></svg><span>5 人研发团队该怎么选 AI 编程工具？</span><svg class="icon " aria-hidden="true"><use href="#i-adopt"></use></svg></button>
+          <button class="sample" data-question="泡泡玛特的海外增长能持续吗？请区分新店扩张、老店销售和热门 IP 对增长的贡献。" type="button"><svg class="icon " aria-hidden="true"><use href="#i-trend"></use></svg><span>泡泡玛特的海外增长能持续吗？</span><svg class="icon " aria-hidden="true"><use href="#i-adopt"></use></svg></button>
+          <button class="sample" data-question="人形机器人最可能先在哪些工厂落地？请区分试点和付费订单，比较成本、可靠性和部署难度。" type="button"><svg class="icon " aria-hidden="true"><use href="#i-factory"></use></svg><span>人形机器人最可能先在哪些工厂落地？</span><svg class="icon " aria-hidden="true"><use href="#i-adopt"></use></svg></button>
+          </div>
+        </section>
+      </section>
+
+      <section id="run-view" class="run-view" hidden>
+        <div class="run-topbar">
+          <button id="back-btn" class="ghost" type="button"><svg class="icon" aria-hidden="true"><use href="#i-back"></use></svg>工作台</button>
+          <div id="run-status" class="run-status" role="status"></div>
+        </div>
+
+        <header class="run-head">
+          <h2 id="run-question" tabindex="-1"></h2>
+          <div class="run-byline">
+            <div class="run-meta" id="run-meta"></div>
+            <button id="brief-toggle" type="button" class="brief-toggle" aria-expanded="false" aria-controls="run-brief">原始提问 <svg class="icon" aria-hidden="true"><use href="#i-down"></use></svg></button>
+          </div>
+          <div id="run-brief" hidden><p id="original-question"></p><div id="brief-meta"></div></div>
+        </header>
+
+        <div class="run-nav">
+          <div class="tabs" role="tablist" aria-label="调研详情">
+          <button id="tab-btn-process" class="tab active" data-tab="process" role="tab" aria-controls="tab-process" aria-selected="true">执行过程</button>
+          <button id="tab-btn-report" class="tab" data-tab="report" role="tab" aria-controls="tab-report" aria-selected="false" tabindex="-1">调研报告</button>
+          <button id="tab-btn-materials" class="tab" data-tab="materials" role="tab" aria-controls="tab-materials" aria-selected="false" tabindex="-1">原始材料</button>
+          </div>
+          <div class="tab-actions" id="tab-actions"></div>
+        </div>
+
+        <div id="tab-process" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-process" tabindex="0">
+          <ol class="phase-rail" id="phase-rail" aria-label="执行阶段"></ol>
+          <div class="grid">
+            <section class="panel">
+              <div class="panel-head">
+                <h3>核心问题</h3>
+                <span id="q-count">—</span>
+              </div>
+              <div id="subquestions" class="subquestions">
+                <div class="empty">正在等待问题拆解…</div>
+              </div>
+            </section>
+
+            <section class="panel log-panel">
+              <div class="panel-head">
+                <h3>执行日志</h3>
+                <span id="log-state" class="mono">等待中</span>
+              </div>
+              <div id="live-log" class="live-log" role="log" aria-label="执行日志" aria-live="off" tabindex="0"></div>
+            </section>
+          </div>
+
+          <div id="result" class="result" hidden></div>
+        </div>
+
+        <div id="tab-report" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-report" tabindex="0" hidden>
+          <div id="report-empty" class="empty report-empty">
+            报告将在综合完成后生成。
+          </div>
+          <iframe id="report-frame" title="调研报告" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads" hidden></iframe>
+        </div>
+
+        <div id="tab-materials" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-materials" tabindex="0" hidden>
+          <div id="materials-list" class="materials-list">
+            <div class="empty">运行开始后会在这里列出原始材料、引用核查与分析文件。</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="settings-dialog" class="sheet" aria-labelledby="settings-title">
+    <header><h2 id="settings-title">调研设置</h2><button type="button" class="icon-button" data-close aria-label="关闭调研设置"><svg class="icon " aria-hidden="true"><use href="#i-x"></use></svg></button></header>
+    <div class="sheet-body">
+      <div class="setting-row engine-setting"><span>调研引擎</span><div class="engines"><label class="engine-choice"><input type="checkbox" name="engine" value="deepseek" checked><span><svg class="icon " aria-hidden="true"><use href="#i-check"></use></svg>DeepSeek</span></label><label class="engine-choice"><input type="checkbox" name="engine" value="workbuddy" checked><span><svg class="icon " aria-hidden="true"><use href="#i-check"></use></svg>WorkBuddy</span></label></div></div>
+      <div id="engine-error" class="field-error" hidden>至少选择一个调研引擎</div>
+      <div class="model-setting"><label for="model">综合模型</label><select id="model" class="choice-select" name="model"><option value="">自动选择</option></select></div>
+      <div class="setting-row"><label for="question-count">子问题数量</label>
+        <select id="question-count" class="choice-select" aria-describedby="question-budget"><option value="auto">自动 · 按复杂度</option></select>
+      </div>
+      <p id="question-budget" class="setting-note" role="status"></p>
+      <div class="setting-row"><span>并行子问题</span><div class="segmented" role="radiogroup" aria-label="并行子问题"><button type="button" role="radio" data-option="concurrency" data-value="1">1</button><button type="button" role="radio" data-option="concurrency" data-value="2" class="active">2</button><button type="button" role="radio" data-option="concurrency" data-value="3">3</button></div></div>
+      <div class="setting-group">
+        <label class="setting-row">核查引用链接<input class="switch" type="checkbox" role="switch" id="verify" checked></label>
+        <div class="setting-row" id="citation-row"><label for="max-citations">最多核查条数</label><div class="stepper">
+          <button type="button" data-step="-1" aria-label="减少核查条数"><svg class="icon " aria-hidden="true"><use href="#i-minus"></use></svg></button>
+          <input id="max-citations" form="run-form" type="number" min="0" max="30" value="10" required>
+          <button type="button" data-step="1" aria-label="增加核查条数"><svg class="icon " aria-hidden="true"><use href="#i-plus"></use></svg></button>
+        </div></div>
+        <label class="setting-row">结束后保留浏览器窗口<input class="switch" type="checkbox" role="switch" id="keep-space"></label>
+      </div>
+    </div>
+    <footer><button id="settings-done" class="dialog-done" type="button">完成</button></footer>
+  </dialog>
+  <dialog id="setup-dialog" class="sheet" aria-labelledby="setup-title">
+    <header><h2 id="setup-title">运行环境</h2><button type="button" class="icon-button" data-close aria-label="关闭运行环境"><svg class="icon " aria-hidden="true"><use href="#i-x"></use></svg></button></header>
+    <div class="sheet-body">
+      <div class="setup-row"><span>综合模型</span><strong id="setup-model">检测中</strong></div>
+      <div class="setup-row"><span>浏览器</span><strong id="setup-browser">检测中</strong></div>
+      <p id="setup-note" role="status" hidden></p>
+      <details class="setup-help"><summary>连接帮助 <svg class="icon " aria-hidden="true"><use href="#i-down"></use></svg></summary>
+        <p>在项目目录运行 <code>npm run setup</code>，用 <code>/login</code> 授权，再用 <code>/model</code> 选定模型。</p>
+        <p><a href="https://lite.ego.app/" target="_blank" rel="noopener noreferrer">安装 Ego Lite</a>，在浏览器中登录要使用的 DeepSeek 或 WorkBuddy。开始调研时会检查登录状态。</p>
+      </details>
+    </div>
+    <footer><button id="refresh-setup" class="dialog-done" type="button">重新检测</button></footer>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
