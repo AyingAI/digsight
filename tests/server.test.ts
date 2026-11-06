@@ -16,6 +16,7 @@ test("HTTP setup, history, validation, stream replay and local-origin protection
   const agent = path.join(root, "agent");
   await fs.mkdir(run, { recursive: true });
   await fs.mkdir(agent);
+  await fs.writeFile(path.join(agent, "auth.json"), "{}");
   await fs.writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "missing", defaultModel: "missing" }));
   await fs.writeFile(path.join(run, "run.json"), JSON.stringify({
     id: "test-run", question: "这是测试运行记录", status: "running", phase: "research", createdAt: new Date().toISOString(),
@@ -64,8 +65,8 @@ test("HTTP setup, history, validation, stream replay and local-origin protection
     assert.equal(setup.model.ok, false);
     assert.deepEqual(setup.questionLimits, { auto: 8, manual: 12 });
     assert.equal(setup.defaults.subQuestionCount, "auto");
-    assert.match(setup.model.error, /login/);
-    assert.ok(!/apiKey|baseUrl|auth\.json|authorization/i.test(JSON.stringify(setup)));
+    assert.match(setup.model.error, /配置对应提供商/);
+    assert.ok(!/"(?:apiKey|baseUrl|authorization)"\s*:|auth\.json/i.test(JSON.stringify(setup)));
   });
   await t.test("interrupted history is not presented as an active job", async () => {
     const list = await (await fetch(`${base}/api/runs`)).json();
@@ -99,6 +100,75 @@ test("HTTP setup, history, validation, stream replay and local-origin protection
     assert.equal((await post('{"question":"这是另一个问题"}')).status, 409);
     request.end('"短"}');
     await done;
+  });
+  await t.test("model keys and defaults can be managed without Pi credentials", async () => {
+    const credentialFile = path.join(root, ".digsight", "credentials.json");
+    const fakeKey = "test-fixture-value-for-deepseek";
+    const send = (endpoint: string, body: unknown, headers = {}) => fetch(`${base}/api/setup/${endpoint}`, {
+      method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
+    });
+    assert.equal((await send("credentials", { provider: "deepseek", apiKey: fakeKey }, { origin: "https://evil.example" })).status, 403);
+    assert.equal((await send("credentials", { provider: "__proto__", apiKey: fakeKey })).status, 400);
+    assert.equal((await send("credentials", { provider: "deepseek", apiKey: "!command" })).status, 400);
+    await assert.rejects(fs.access(credentialFile), { code: "ENOENT" });
+
+    const saved = await send("credentials", { provider: "deepseek", apiKey: fakeKey });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(await saved.json(), { ok: true });
+    assert.equal(saved.headers.get("cache-control"), "no-store");
+    const raw = await (await fetch(`${base}/api/setup`)).text();
+    assert.ok(!raw.includes(fakeKey));
+    const model = JSON.parse(raw).model;
+    assert.equal(model.providers.find((provider: { id: string }) => provider.id === "deepseek").configured, true);
+    const selected = model.models.find((item: { provider: string }) => item.provider === "deepseek")?.id;
+    assert.ok(selected, "expected a DeepSeek model from the bundled catalog");
+    if (process.platform !== "win32") assert.equal((await fs.stat(credentialFile)).mode & 0o777, 0o600);
+    assert.equal(JSON.parse(await fs.readFile(credentialFile, "utf8")).keys.deepseek, fakeKey);
+
+    assert.equal((await send("model", { model: "not-a-provider/model" })).status, 400);
+    assert.equal((await send("model", { model: selected })).status, 200);
+    const configured = await (await fetch(`${base}/api/setup`)).json();
+    assert.equal(configured.model.source, "digsight-default");
+    assert.equal(configured.model.label, selected);
+
+    assert.equal((await send("credentials", { provider: "deepseek", remove: true })).status, 200);
+    assert.deepEqual(JSON.parse(await fs.readFile(credentialFile, "utf8")), { keys: {} });
+    const removed = await (await fetch(`${base}/api/setup`)).json();
+    assert.deepEqual(removed.model.models, []);
+    assert.equal(removed.model.ok, false);
+    assert.equal(removed.model.providers.find((provider: { id: string }) => provider.id === "deepseek").configured, false);
+    assert.equal(await fs.readFile(path.join(agent, "auth.json"), "utf8"), "{}");
+  });
+  await t.test("custom model settings keep keys bound to their endpoint", async () => {
+    const provider = "digsight-custom";
+    const fakeKey = "test-fixture-custom-endpoint-value";
+    const baseUrl = "https://example.invalid/v1";
+    const modelId = "org/research-model:free";
+    const model = `${provider}/${modelId}`;
+    const send = (endpoint: string, body: unknown) => fetch(`${base}/api/setup/${endpoint}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    const setup = async () => (await fetch(`${base}/api/setup`)).json();
+    assert.equal((await send("credentials", { provider, modelId, baseUrl: "http://example.invalid/v1", apiKey: fakeKey })).status, 400);
+    assert.equal((await send("credentials", { provider, modelId, baseUrl: baseUrl + "/chat/completions", apiKey: fakeKey })).status, 400);
+    assert.equal((await send("credentials", { provider, modelId, baseUrl })).status, 400);
+    assert.equal((await send("credentials", { provider, modelId, baseUrl: baseUrl + "/", apiKey: fakeKey })).status, 200);
+    const saved = await setup();
+    assert.ok(!JSON.stringify(saved).includes(fakeKey));
+    assert.deepEqual(saved.model.custom, { baseUrl, modelId, hasKey: true });
+    assert.ok(saved.model.models.some((item: { id: string }) => item.id === model));
+    assert.equal((await send("model", { model })).status, 200);
+    assert.equal((await setup()).model.label, model);
+
+    assert.equal((await send("credentials", { provider, modelId, baseUrl: "https://changed.invalid/v1" })).status, 400);
+    assert.equal((await setup()).model.custom.baseUrl, baseUrl);
+    assert.equal((await send("credentials", { provider, modelId: "next-model", baseUrl })).status, 200);
+    assert.equal((await setup()).model.label, `${provider}/next-model`);
+    const localUrl = "http://127.0.0.1:11434/v1";
+    assert.equal((await send("credentials", { provider, modelId, baseUrl: localUrl })).status, 200);
+    assert.deepEqual((await setup()).model.custom, { baseUrl: localUrl, modelId, hasKey: false });
+    assert.equal((await send("credentials", { provider, remove: true })).status, 200);
+    assert.equal((await setup()).model.custom, undefined);
   });
   await t.test("blocks cross-site requests, rebinding hosts and non-JSON writes", async () => {
     assert.equal((await post("{}", { origin: "https://evil.example" })).status, 403);

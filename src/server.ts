@@ -3,8 +3,9 @@ import http from "node:http";
 import { promises as fs, createReadStream } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_RUNS_DIR, defaultOptions, inspectEnvironment, normalizeOptions, resolveModel } from "./config.ts";
+import { DEFAULT_RUNS_DIR, defaultOptions, inspectEnvironment, modelCatalog, normalizeOptions, resolveModel } from "./config.ts";
 import { HttpError, readJsonBody, validateRequest } from "./http-safety.ts";
+import { CUSTOM_MODEL_PROVIDER, customModelAddress, isApiKey, isModelProvider, readModelSettings, writeModelSettings } from "./model-settings.ts";
 import { REPORT_SCRIPT_HASH, LEGACY_PRINT_HASH } from "./report/report.ts";
 import { runPipeline } from "./pipeline.ts";
 import { AUTO_QUESTION_LIMIT, MANUAL_QUESTION_LIMIT, questionCount } from "./research-plan.ts";
@@ -21,6 +22,7 @@ const HOST = process.env.DIGSIGHT_HOST || "127.0.0.1";
 
 const active = new Map<string, RunContext>();
 let starting = false;
+let configuringModel = false;
 let shuttingDown = false;
 const running = new Set<Promise<unknown>>();
 let environmentCache: { expires: number; value: ReturnType<typeof inspectEnvironment> } | undefined;
@@ -123,6 +125,59 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     } });
   }
 
+  if (req.method === "POST" && ["/api/setup/credentials", "/api/setup/model"].includes(pathname)) {
+    if (starting || active.size || configuringModel) throw new HttpError(409, "请在当前调研或设置操作完成后再修改模型配置。");
+    configuringModel = true;
+    try {
+      const body = await readJsonBody(req);
+      const settings = await readModelSettings();
+      if (pathname === "/api/setup/credentials") {
+        const { provider } = body;
+        if (provider !== CUSTOM_MODEL_PROVIDER && !isModelProvider(provider)) throw new HttpError(400, "请选择列表中的模型提供商。");
+        if (body.remove === true) {
+          if (provider === CUSTOM_MODEL_PROVIDER) delete settings.custom;
+          else delete settings.keys[provider];
+          if (settings.defaultModel?.startsWith(`${provider}/`)) delete settings.defaultModel;
+        } else {
+          const key = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+          if ((body.apiKey !== undefined && typeof body.apiKey !== "string") || (key && !isApiKey(key))) {
+            throw new HttpError(400, "请输入完整的 API Key，去掉空格和换行。");
+          }
+          if (provider === CUSTOM_MODEL_PROVIDER) {
+            const address = customModelAddress(
+              typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined,
+              typeof body.modelId === "string" ? body.modelId.trim() : undefined,
+            );
+            if (!address) throw new HttpError(400, "请输入接口根地址和模型 ID。远程地址使用 HTTPS，地址末尾填写 /v1 等接口前缀。");
+            const { baseUrl, modelId, local } = address;
+            // A replacement endpoint must never inherit credentials from the previous one.
+            const apiKey = key || (settings.custom?.baseUrl === baseUrl ? settings.custom.apiKey : undefined);
+            if (!apiKey && !local) throw new HttpError(400, "请填写该远程接口的 API Key。");
+            settings.custom = { baseUrl, modelId, apiKey };
+            if (settings.defaultModel?.startsWith(`${provider}/`)) settings.defaultModel = `${provider}/${modelId}`;
+          } else {
+            if (!key) throw new HttpError(400, "请输入 API Key。");
+            settings.keys[provider] = key;
+          }
+        }
+      } else {
+        const { model } = body;
+        const { available } = await modelCatalog(settings).catch(() => {
+          throw new HttpError(422, "暂时无法读取模型列表，请重新检测后再试。");
+        });
+        if (typeof model !== "string" || !available.some(item => `${item.provider}/${item.id}` === model)) {
+          throw new HttpError(400, "请选择一个当前可用的模型。");
+        }
+        settings.defaultModel = model;
+      }
+      await writeModelSettings(settings);
+      environmentCache = undefined;
+      return sendJson(res, 200, { ok: true });
+    } finally {
+      configuringModel = false;
+    }
+  }
+
   if (req.method === "GET" && pathname === "/api/health") {
     return sendJson(res, 200, { ok: true, activeRuns: active.size });
   }
@@ -139,6 +194,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (pathname === "/api/runs" && req.method === "POST") {
+    if (configuringModel) throw new HttpError(409, "正在保存模型配置，请稍候。");
     if (starting || active.size > 0) {
       return sendJson(res, 409, {
         error: "已有调研正在创建或执行，请稍候。",

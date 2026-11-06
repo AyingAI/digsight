@@ -18,6 +18,7 @@ const state = {
   loadingRuns: false,
   historyVersion: 0,
   setupError: false,
+  savingModelSetup: false,
   loadingRun: false,
   submitting: false,
   setup: null,
@@ -59,6 +60,7 @@ const PHASES = [
 ];
 
 const ENGINE_LABEL = { deepseek: "DeepSeek", workbuddy: "WorkBuddy" };
+const CUSTOM_MODEL_PROVIDER = "digsight-custom";
 const ENGINE_DOT = { deepseek: "ds", workbuddy: "wb" };
 const VERDICT_LABEL = {
   supported: "支持",
@@ -220,6 +222,10 @@ function showDialog(id) {
   closeHistory();
   $(id).showModal();
 }
+function showSetup() {
+  if (!state.setup?.model.models.length) $("#credential-editor").open = true;
+  showDialog("#setup-dialog");
+}
 function bindGlobal() {
   $("#history-toggle").addEventListener("click", (event) => {
     const button = event.currentTarget;
@@ -236,11 +242,18 @@ function bindGlobal() {
     $("#run-brief").hidden = !open;
     $("#brief-toggle").setAttribute("aria-expanded", String(open));
   });
-  $("#environment-button").addEventListener("click", () => showDialog("#setup-dialog"));
+  $("#environment-button").addEventListener("click", showSetup);
   $("#settings-button").addEventListener("click", () => showDialog("#settings-dialog"));
+  $("#configure-model").addEventListener("click", () => {
+    $("#settings-dialog").close();
+    $("#credential-editor").open = true;
+    showSetup();
+    $("#key-provider").focus();
+  });
   $("#resolve-hint").addEventListener("click", (event) => {
     const target = event.currentTarget.dataset.target;
     if (target === "run") void openRun(state.activeRunId);
+    else if (target === "#setup-dialog") showSetup();
     else showDialog(target);
   });
   for (const dialog of $$(".sheet")) {
@@ -268,7 +281,41 @@ function bindGlobal() {
   window.addEventListener("offline", () => connection("网络已断开。请保持本地服务运行，恢复网络后会继续同步。"));
   window.addEventListener("online", () => { void loadRuns(); void loadSetup(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void loadRuns(); });
-  $("#refresh-setup").addEventListener("click", () => loadSetup(true));
+  $("#refresh-setup").addEventListener("click", () => { if (!state.savingModelSetup) void loadSetup(true); });
+  $("#setup-dialog").addEventListener("close", () => {
+    $("#provider-key").value = "";
+    syncCredentialForm();
+  });
+  $("#key-provider").addEventListener("change", () => {
+    $("#provider-key").value = "";
+    fillCustomModelFields();
+    showModelSetupStatus("");
+    syncCredentialForm();
+  });
+  $("#credential-form").addEventListener("input", syncCredentialForm);
+  $("#credential-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if ($("#save-provider-key").disabled) return;
+    const field = $("#provider-key");
+    const provider = $("#key-provider").value;
+    const custom = provider === CUSTOM_MODEL_PROVIDER;
+    const body = { provider, apiKey: field.value.trim() };
+    if (custom) {
+      body.baseUrl = $("#custom-base-url").value.trim();
+      body.modelId = $("#custom-model-id").value.trim();
+    }
+    field.value = "";
+    const message = custom ? "已保存自定义模型。可以选择它作为默认模型。" : "API Key 已保存。实际授权和额度将在首次请求时确认。";
+    void saveModelSetup("/api/setup/credentials", body, message, true);
+  });
+  $("#remove-provider-key").addEventListener("click", () => {
+    const provider = $("#key-provider").value;
+    const message = provider === CUSTOM_MODEL_PROVIDER ? "已移除自定义模型。" : "已移除 Digsight 保存的 API Key。";
+    void saveModelSetup("/api/setup/credentials", { provider, remove: true }, message);
+  });
+  $("#setup-default-model").addEventListener("change", (event) => {
+    if (event.target.value) void saveModelSetup("/api/setup/model", { model: event.target.value }, "已保存默认综合模型。");
+  });
   $(".skip-link").addEventListener("click", (event) => { event.preventDefault(); $("#main").focus(); });
   $("#back-btn").addEventListener("click", () => showComposer(true));
   $("#new-run").addEventListener("click", () => showComposer(true));
@@ -414,9 +461,16 @@ function updateStartState() {
   if (state.activeRunId) {
     message = "已有调研正在进行。"; action = "查看进度"; target = "run";
   } else if (state.setupError || (state.setup && (!state.setup.browser.ok || !hasModel()))) {
-    const chooseModel = !state.setupError && state.setup.browser.ok && state.setup.model.models.length > 0;
-    message = state.setupError ? "未能连接本地服务。" : !state.setup.browser.ok ? "未检测到 Ego Lite。" : "尚未选定可用模型。";
-    action = chooseModel ? "选择模型" : "查看环境"; target = chooseModel ? "#settings-dialog" : "#setup-dialog";
+    if (state.setupError) {
+      message = "未能连接本地服务。"; action = "查看环境";
+    } else if (!hasModel()) {
+      const hasChoices = state.setup.model.models.length > 0;
+      message = hasChoices ? "请选择综合模型。" : "尚未连接综合模型。";
+      action = hasChoices ? "选择模型" : "配置 API Key";
+    } else {
+      message = "未检测到 Ego Lite。"; action = "查看环境";
+    }
+    target = "#setup-dialog";
   } else if (state.setup && !state.setup.questionLimits) {
     message = "服务更新后可开始新调研。"; action = "重新检测"; target = "#setup-dialog";
   } else if (!engines.length || !citations.validity.valid) {
@@ -444,15 +498,109 @@ function hasModel() {
 function syncEnvironment() {
   const setup = state.setup;
   const ok = setup && hasModel() && setup.browser.ok;
+  const modelId = $("#model").value || setup?.model.label;
+  const currentModel = setup?.model.models.find(item => item.id === modelId);
   $("#environment-button").dataset.state = ok ? "ok" : "warn";
   $("#environment-status").textContent = ok ? "配置已检测" : setup ? "配置待完善" : "检测失败";
-  $("#setup-model").textContent = setup ? $("#model").value || setup.model.label || "未配置" : "未检测";
+  $("#setup-model").textContent = currentModel ? modelOptionLabel(currentModel) : modelId || (setup ? "未配置" : "未检测");
   $("#setup-browser").textContent = setup ? setup.browser.ok ? setup.browser.version || "已检测到 Ego Lite" : "未检测到" : "未检测";
   $("#setup-note").textContent = !setup ? "请确认本地服务已启动，再重新检测。" : [
     !hasModel() && setup.model.error, !setup.browser.ok && setup.browser.error
   ].filter(Boolean).join(" ");
   $("#setup-note").hidden = !$("#setup-note").textContent;
 
+}
+
+function syncCredentialForm() {
+  const busy = state.savingModelSetup || $("#refresh-setup").disabled;
+  const providers = state.setup?.model.providers ?? [];
+  const select = $("#key-provider");
+  const provider = providers.find(item => item.id === select.value);
+  const custom = provider?.id === CUSTOM_MODEL_PROVIDER;
+  const base = $("#custom-base-url");
+  const model = $("#custom-model-id");
+  const field = $("#provider-key");
+  const link = $("#provider-key-link");
+  const remove = $("#remove-provider-key");
+  select.disabled = busy || !providers.length;
+  $("#custom-model-fields").hidden = !custom;
+  base.disabled = model.disabled = busy || !custom;
+  field.disabled = busy || !provider;
+  field.required = !custom;
+  field.placeholder = (custom ? state.setup.model.custom?.hasKey : provider?.configured)
+    ? "已保存，输入新的 Key 可替换" : "粘贴提供商发放的 Key";
+  $("#key-storage-note").textContent = custom
+    ? "更换地址需填写新 Key。本机接口无需授权时可留空。"
+    : "Key 保存在本机，保存后会加载该提供商的模型。";
+  link.hidden = !provider?.keyUrl;
+  if (provider?.keyUrl) link.href = provider.keyUrl;
+  else link.removeAttribute("href");
+  remove.hidden = !provider?.configured;
+  remove.disabled = busy;
+  remove.textContent = custom ? "移除自定义模型" : "移除本地 Key";
+  const save = $("#save-provider-key");
+  save.textContent = custom ? "保存自定义模型" : "保存 API Key";
+  save.disabled = busy || !provider || (custom ? !base.value.trim() || !model.value.trim() : !field.value.trim());
+  $("#setup-default-model").disabled = busy;
+}
+
+function fillCustomModelFields() {
+  const custom = state.setup?.model.custom;
+  $("#custom-base-url").value = custom?.baseUrl || "";
+  $("#custom-model-id").value = custom?.modelId || "";
+}
+
+function modelOptionLabel(item) {
+  return item.provider === CUSTOM_MODEL_PROVIDER ? `自定义 · ${item.name}` : item.id;
+}
+
+function populateModelSetup() {
+  const model = state.setup?.model;
+  const providerSelect = $("#key-provider");
+  const selected = providerSelect.value;
+  clear(providerSelect);
+  providerSelect.append(new Option("选择提供商", ""));
+  for (const provider of model?.providers ?? []) {
+    providerSelect.append(new Option(provider.configured ? `${provider.name}（已保存）` : provider.name, provider.id));
+  }
+  if (model?.providers?.some(provider => provider.id === selected)) providerSelect.value = selected;
+  const defaults = $("#setup-default-model");
+  clear(defaults);
+  const placeholder = new Option("选择默认模型", "");
+  placeholder.disabled = true;
+  defaults.append(placeholder);
+  for (const item of model?.models ?? []) defaults.append(new Option(modelOptionLabel(item), item.id));
+  defaults.value = model?.ok ? model.label : "";
+  $("#setup-model-setting").hidden = !model?.models.length;
+}
+
+function showModelSetupStatus(message, error = false) {
+  const status = $("#model-setup-status");
+  status.textContent = message;
+  status.hidden = !message;
+  status.dataset.state = error ? "error" : "";
+}
+
+async function saveModelSetup(endpoint, body, success, focusModel = false) {
+  if (state.savingModelSetup || $("#refresh-setup").disabled) return;
+  state.savingModelSetup = true;
+  syncCredentialForm();
+  showModelSetupStatus("正在保存…");
+  let saved = false;
+  try {
+    await api(endpoint, { method: "POST", body: JSON.stringify(body) });
+    saved = true;
+    if (endpoint === "/api/setup/model") $("#model").value = "";
+    await loadSetup(true);
+    showModelSetupStatus(state.setupError ? "已保存配置。模型列表刷新失败，请重新检测。" : success, state.setupError);
+  } catch (error) {
+    populateModelSetup();
+    showModelSetupStatus(error.status ? error.message : "连接中断。请重新检测，确认设置是否已保存。", true);
+  } finally {
+    state.savingModelSetup = false;
+    syncCredentialForm();
+    if (saved && focusModel && $("#setup-dialog").open && !$("#setup-model-setting").hidden) $("#setup-default-model").focus();
+  }
 }
 
 function bindArrowNavigation(container, selector) {
@@ -473,15 +621,18 @@ async function loadSetup(refresh = false) {
   if (button.disabled) return;
   button.disabled = true;
   button.textContent = "检测中…";
+  syncCredentialForm();
   try {
     state.setup = await api(`/api/setup${refresh ? "?refresh=1" : ""}`);
     state.setupError = false;
+    fillCustomModelFields();
     const { model, defaults } = state.setup;
     const select = $("#model");
     const selected = select.value;
     clear(select);
-    select.append(new Option(model.ok ? `默认 · ${model.label}` : "请选择模型", ""));
-    for (const item of model.models) select.append(new Option(item.id, item.id));
+    const defaultModel = model.models.find(item => item.id === model.label);
+    select.append(new Option(defaultModel ? `默认 · ${modelOptionLabel(defaultModel)}` : "请选择模型", ""));
+    for (const item of model.models) select.append(new Option(modelOptionLabel(item), item.id));
     if (model.models.some((m) => m.id === selected)) select.value = selected;
     if (!state.defaultsApplied && defaults) {
       const countInput = $("#question-count");
@@ -512,8 +663,10 @@ async function loadSetup(refresh = false) {
     state.setupError = true;
   } finally {
     syncEnvironment();
+    populateModelSetup();
     button.disabled = false;
     button.textContent = "重新检测";
+    syncCredentialForm();
     updateStartState();
   }
 }

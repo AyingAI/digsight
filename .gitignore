@@ -11,6 +11,7 @@ coverage/
 .npmrc
 .netrc
 .pi/
+.digsight/
 .ego/
 .ego-browser/
 .codex/

@@ -109,7 +109,6 @@ a:hover,.inline-link:hover { color:var(--blue-hover); }
 .sample span { grid-column:1/-1; max-width:16em; text-wrap:balance; }
 .sample:hover,.sample:focus-visible { background:var(--blue-wash); color:var(--blue-hover); }
 .form-feedback { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; margin:8px 0 0; font-size:13px; color:var(--muted); }
-.privacy-hint { margin:8px 0 0; font-size:13px; color:var(--muted); }
 .inline-link { background:transparent; border:0; text-decoration:underline; padding:3px; }
 .form-error,.connection-banner { font-size:13px; padding:10px 14px; }
 .form-error { color:var(--error); background:#fbefee; border-radius:6px; }
@@ -138,6 +137,9 @@ a:hover,.inline-link:hover { color:var(--blue-hover); }
 .field-error { color:var(--error); font-size:12px; text-align:right; }
 .model-setting { margin:9px 0 12px; }
 .model-setting label { display:block; margin-bottom:5px; }
+.model-setting-header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:5px; }
+.model-setting-header label { margin:0; }
+.model-setting-header a,.model-setting-header button { color:var(--blue); font-size:13px; }
 .choice-select { display:block; width:100%; min-height:38px; padding:7px 28px 7px 10px; font-size:13px; border:1px solid var(--control); border-radius:6px; background:var(--paper); text-overflow:ellipsis; }
 @supports (appearance:base-select) {
   .choice-select,.choice-select::picker(select) { appearance:base-select; }
@@ -165,6 +167,12 @@ a:hover,.inline-link:hover { color:var(--blue-hover); }
 .setup-row span { flex:none; color:var(--muted); }
 .setup-row strong { text-align:right; font-weight:500; overflow-wrap:anywhere; }
 #setup-note,.setup-help p { font-size:13px; color:var(--muted); }
+.setup-detail { margin:5px 0 0; color:var(--muted); font-size:13px; }
+.setup-input { width:100%; min-height:40px; border:1px solid var(--control); border-radius:6px; padding:8px 10px; background:var(--paper); color:var(--ink); }
+.credential-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; padding-bottom:8px; }
+.credential-actions .dialog-done:disabled { background:var(--wash); color:var(--muted); }
+#model-setup-status[data-state="error"] { color:var(--error); }
+.setup-browser-row { margin-top:10px; border-top:1px solid var(--faint); }
 .setup-help summary { display:flex; align-items:center; justify-content:space-between; padding-block:8px; list-style:none; }
 .setup-help summary .icon { width:14px; }
 .setup-help[open] summary .icon { transform:rotate(180deg); }

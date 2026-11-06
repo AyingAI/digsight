@@ -35,8 +35,9 @@ test("model selection follows explicit > env > pi; flash is the unconfigured pre
 });
 
 test("missing, ambiguous and unauthorized choices never silently fall back", () => {
-  assert.throws(() => selectModel(models, { requested: "missing/model" }), /不会自动切换/);
-  assert.throws(() => selectModel(models, { piDefault: "missing/model" }), /不会自动切换/);
+  assert.throws(() => selectModel(models, { requested: "missing/model" }), /不可用/);
+  assert.throws(() => selectModel(models, { piDefault: "missing/model" }), /不可用/);
+  assert.equal(selectModel(models, { appDefault: "other/small", piDefault: "opencode-go/deepseek-v4-pro" }).source, "digsight-default");
   assert.throws(() => selectModel([], {}), /尚未连接/);
   assert.throws(() => selectModel([models[0]!, models[2]!], {}), /多个可用模型/);
   assert.throws(() => selectModel([...models, { provider: "duplicate", id: "small" }], { requested: "small" }), /多个提供商/);

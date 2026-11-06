@@ -52,7 +52,7 @@
         <h1><label for="question">你想研究什么？</label></h1>
         <form id="run-form" class="run-form" autocomplete="off">
           <div class="writing-desk">
-            <textarea id="question" name="question" rows="3" maxlength="4000" minlength="6" required aria-describedby="privacy-hint submit-hint form-error"
+            <textarea id="question" name="question" rows="3" maxlength="4000" minlength="6" required aria-describedby="submit-hint form-error"
               placeholder="写下你的问题，可以带上背景或判断标准…"></textarea>
             <div class="desk-tools">
               <button type="button" id="settings-button" class="settings-button" aria-haspopup="dialog" aria-controls="settings-dialog"><svg class="icon " aria-hidden="true"><use href="#i-settings"></use></svg> 调研设置</button>
@@ -61,7 +61,6 @@
               </div>
             </div>
           </div>
-          <p id="privacy-hint" class="privacy-hint">调研内容会发送给所选模型和调研引擎。请勿输入密钥或私密资料。</p>
           <div class="form-feedback" id="feedback" hidden>
             <span id="submit-hint" role="status"></span><button id="resolve-hint" type="button" class="inline-link" hidden></button>
           </div>
@@ -147,7 +146,10 @@
     <div class="sheet-body">
       <div class="setting-row engine-setting"><span>调研引擎</span><div class="engines"><label class="engine-choice"><input type="checkbox" name="engine" value="deepseek" checked><span><svg class="icon " aria-hidden="true"><use href="#i-check"></use></svg>DeepSeek</span></label><label class="engine-choice"><input type="checkbox" name="engine" value="workbuddy" checked><span><svg class="icon " aria-hidden="true"><use href="#i-check"></use></svg>WorkBuddy</span></label></div></div>
       <div id="engine-error" class="field-error" hidden>至少选择一个调研引擎</div>
-      <div class="model-setting"><label for="model">综合模型</label><select id="model" class="choice-select" name="model"><option value="">自动选择</option></select></div>
+      <div class="model-setting">
+        <div class="model-setting-header"><label for="model">综合模型</label><button id="configure-model" type="button" class="inline-link">配置 API Key</button></div>
+        <select id="model" class="choice-select" name="model"><option value="">自动选择</option></select>
+      </div>
       <div class="setting-row"><label for="question-count">子问题数量</label>
         <select id="question-count" class="choice-select" aria-describedby="question-budget"><option value="auto">自动 · 按复杂度</option></select>
       </div>
@@ -169,10 +171,41 @@
     <header><h2 id="setup-title">运行环境</h2><button type="button" class="icon-button" data-close aria-label="关闭运行环境"><svg class="icon " aria-hidden="true"><use href="#i-x"></use></svg></button></header>
     <div class="sheet-body">
       <div class="setup-row"><span>综合模型</span><strong id="setup-model">检测中</strong></div>
-      <div class="setup-row"><span>浏览器</span><strong id="setup-browser">检测中</strong></div>
+      <div id="setup-model-setting" class="model-setting" hidden>
+        <label for="setup-default-model">默认综合模型</label>
+        <select id="setup-default-model" class="choice-select" aria-describedby="default-model-note"></select>
+        <p id="default-model-note" class="setup-detail">选择后自动保存，适用于之后的调研。</p>
+      </div>
+      <details id="credential-editor" class="setup-help">
+        <summary>配置 API Key <svg class="icon" aria-hidden="true"><use href="#i-down"></use></svg></summary>
+        <form id="credential-form" autocomplete="off">
+          <div class="model-setting"><label for="key-provider">提供商</label><select id="key-provider" class="choice-select"><option value="">选择提供商</option></select></div>
+          <div id="custom-model-fields" hidden>
+            <div class="model-setting">
+              <label for="custom-base-url">Base URL</label>
+              <input id="custom-base-url" class="setup-input" type="url" maxlength="2048" autocomplete="off" spellcheck="false" placeholder="https://api.example.com/v1" aria-describedby="custom-base-note" required disabled>
+              <p id="custom-base-note" class="setup-detail">填写 OpenAI 兼容接口的根地址。</p>
+            </div>
+            <div class="model-setting">
+              <label for="custom-model-id">模型 ID</label>
+              <input id="custom-model-id" class="setup-input" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="填写接口提供的模型 ID" required disabled>
+            </div>
+          </div>
+          <div class="model-setting">
+            <div class="model-setting-header"><label for="provider-key">API Key</label><a id="provider-key-link" target="_blank" rel="noopener noreferrer" hidden>获取 Key</a></div>
+            <input id="provider-key" class="setup-input" type="password" maxlength="2048" autocomplete="off" autocapitalize="off" spellcheck="false" required disabled aria-describedby="key-storage-note">
+            <p id="key-storage-note" class="setup-detail">Key 保存在本机，保存后会加载该提供商的模型。</p>
+          </div>
+          <div class="credential-actions">
+            <button id="save-provider-key" type="submit" class="dialog-done" disabled>保存 API Key</button>
+            <button id="remove-provider-key" type="button" class="inline-link" hidden>移除本地 Key</button>
+          </div>
+        </form>
+      </details>
+      <p id="model-setup-status" class="setup-detail" role="status" hidden></p>
+      <div class="setup-row setup-browser-row"><span>浏览器</span><strong id="setup-browser">检测中</strong></div>
       <p id="setup-note" role="status" hidden></p>
-      <details class="setup-help"><summary>连接帮助 <svg class="icon " aria-hidden="true"><use href="#i-down"></use></svg></summary>
-        <p>在项目目录运行 <code>npm run setup</code>，用 <code>/login</code> 授权，再用 <code>/model</code> 选定模型。</p>
+      <details class="setup-help"><summary>浏览器连接帮助 <svg class="icon " aria-hidden="true"><use href="#i-down"></use></svg></summary>
         <p><a href="https://lite.ego.app/" target="_blank" rel="noopener noreferrer">安装 Ego Lite</a>，在浏览器中登录要使用的 DeepSeek 或 WorkBuddy。开始调研时会检查登录状态。</p>
       </details>
     </div>

@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { browserProcessEnv } from "./browser/ego.ts";
+import { CUSTOM_MODEL_PROVIDER, isModelProvider, MODEL_PROVIDERS, readModelSettings, type ModelSettings } from "./model-settings.ts";
 import type { EngineName, RunOptions, ThinkingLevel } from "./types.ts";
 import { questionCount } from "./research-plan.ts";
 import { ENGINES } from "./types.ts";
@@ -52,7 +53,7 @@ export function normalizeEngines(value: unknown): EngineName[] {
 }
 
 export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
-export type ModelSource = "requested" | "environment" | "pi-default" | "preferred" | "only-available";
+export type ModelSource = "requested" | "environment" | "digsight-default" | "pi-default" | "preferred" | "only-available";
 export interface ResolvedModel {
   runtime: ModelRuntime;
   model: RuntimeModel;
@@ -82,17 +83,18 @@ export function readPiDefaults(): { provider?: string; model?: string } {
 /** Select only credential-ready models. Never silently replace an explicit choice. */
 export function selectModel<T extends { provider: string; id: string }>(
   available: readonly T[],
-  input: { requested?: string; environment?: string; piDefault?: string },
+  input: { requested?: string; environment?: string; appDefault?: string; piDefault?: string },
 ): { model: T; source: ModelSource } {
   const exact = (spec: string): T => {
     const matches = available.filter((m) => `${m.provider}/${m.id}` === spec || m.id === spec);
     if (matches.length === 1) return matches[0]!;
     if (matches.length > 1) throw new Error(`模型 ${spec} 对应多个提供商，请选择完整的 provider/id。`);
-    throw new Error(`模型 ${spec} 不可用或尚未授权。请在 pi 中 /login 授权对应提供商，并用 /model 确认；不会自动切换到其他模型。`);
+    throw new Error(`模型 ${spec} 不可用或尚未授权。请在「运行环境」配置对应提供商，或选择其他模型。`);
   };
   for (const [source, spec] of [
     ["requested", input.requested],
     ["environment", input.environment],
+    ["digsight-default", input.appDefault],
     ["pi-default", input.piDefault],
   ] as const) {
     if (spec?.trim()) return { model: exact(spec.trim()), source };
@@ -101,26 +103,80 @@ export function selectModel<T extends { provider: string; id: string }>(
   if (preferred.length === 1) return { model: preferred[0]!, source: "preferred" };
   if (available.length === 1) return { model: available[0]!, source: "only-available" };
   if (!available.length) {
-    throw new Error("尚未连接综合模型。在 pi 中运行 /login 添加 API Key 或登录受支持的订阅，再用 /model 选择默认模型。已有 pi 凭据无需重复填写。");
+    throw new Error("尚未连接综合模型。请在「运行环境」添加 API Key。");
   }
-  throw new Error("检测到多个可用模型。请在高级设置中选择，或在 pi 的 /model 中用 Ctrl+S 保存默认模型。");
+  throw new Error("检测到多个可用模型。请在「运行环境」选择默认模型。");
 }
 
-async function modelCatalog() {
+export async function modelCatalog(settings?: ModelSettings) {
+  const { keys, defaultModel, custom } = settings ?? await readModelSettings();
   const dir = piAgentDir();
   const signal = AbortSignal.timeout(10_000);
-  const runtime = await ModelRuntime.create({
-    authPath: path.join(dir, "auth.json"),
-    modelsPath: path.join(dir, "models.json"),
-    signal,
-  });
-  const available = await runtime.getAvailable(undefined, { signal });
-  return { runtime, available };
+  const managed = (provider: string) => provider === CUSTOM_MODEL_PROVIDER ? Boolean(custom) : isModelProvider(provider) && keys[provider] !== undefined;
+  const configured = Object.keys(keys);
+  if (custom) configured.push(CUSTOM_MODEL_PROVIDER);
+  const [pi, app] = await Promise.all([
+    ModelRuntime.create({
+      authPath: path.join(dir, "auth.json"),
+      modelsPath: path.join(dir, "models.json"),
+      signal,
+    }).catch((error: unknown) => {
+      if (!configured.length) throw error;
+      return undefined;
+    }),
+    configured.length ? ModelRuntime.create({
+      // UI keys must use the built-in endpoints, even if a Pi config overrides them.
+      modelsPath: null,
+      signal,
+      credentials: {
+        async read(providerId) {
+          const key = providerId === CUSTOM_MODEL_PROVIDER && custom
+            ? custom.apiKey ?? "digsight-local"
+            : isModelProvider(providerId) ? keys[providerId] : undefined;
+          return key ? { type: "api_key", key } : undefined;
+        },
+        async list() { return configured.map(providerId => ({ providerId, type: "api_key" })); },
+        async modify() { throw new Error("凭据只能在 Digsight 设置中更新。"); },
+        async delete() { throw new Error("凭据只能在 Digsight 设置中移除。"); },
+      },
+    }) : undefined,
+  ]);
+  if (app && custom) {
+    app.registerProvider(CUSTOM_MODEL_PROVIDER, {
+      name: "自定义",
+      baseUrl: custom.baseUrl,
+      api: "openai-completions",
+      models: [{
+        id: custom.modelId,
+        name: custom.modelId,
+        input: ["text"],
+        reasoning: false,
+        contextWindow: 128_000,
+        maxTokens: 8_192,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        compat: { supportsDeveloperRole: false, supportsStore: false, maxTokensField: "max_tokens" },
+      }],
+    });
+  }
+  const available = [
+    ...(pi?.getAvailableSnapshot().filter(model => !managed(model.provider)) ?? []),
+    ...(app ? (await app.getAvailable(undefined, { signal })).filter(model => managed(model.provider)) : []),
+  ];
+  return {
+    available,
+    defaultModel,
+    providers: [
+      ...MODEL_PROVIDERS.map(provider => ({ ...provider, configured: managed(provider.id) })),
+      { id: CUSTOM_MODEL_PROVIDER, name: "自定义", configured: Boolean(custom) },
+    ],
+    custom: custom ? { baseUrl: custom.baseUrl, modelId: custom.modelId, hasKey: Boolean(custom.apiKey) } : undefined,
+    runtimeFor: (provider: string) => (managed(provider) ? app : pi)!,
+  };
 }
 
-function selectionInput(requested?: string) {
+function selectionInput(appDefault?: string, requested?: string) {
   const environment = process.env.DIGSIGHT_MODEL;
-  if (requested?.trim() || environment?.trim()) return { requested, environment };
+  if (requested?.trim() || environment?.trim() || appDefault) return { requested, environment, appDefault };
   const defaults = readPiDefaults();
   return {
     requested,
@@ -130,11 +186,11 @@ function selectionInput(requested?: string) {
 }
 
 export async function resolveModel(requested?: string): Promise<ResolvedModel> {
-  const { runtime, available } = await modelCatalog().catch(() => {
-    throw new Error("无法读取 pi 模型配置，请在 pi 中检查授权和 models.json。");
+  const { runtimeFor, available, defaultModel } = await modelCatalog().catch(() => {
+    throw new Error("无法读取本机模型配置，请检查 Digsight 设置或 Pi 配置。");
   });
-  const { model, source } = selectModel(available, selectionInput(requested));
-  return { runtime, model, label: `${model.provider}/${model.id}`, source };
+  const { model, source } = selectModel(available, selectionInput(defaultModel, requested));
+  return { runtime: runtimeFor(model.provider), model, label: `${model.provider}/${model.id}`, source };
 }
 
 export async function checkEgoBrowser(): Promise<{ ok: boolean; version?: string; error?: string }> {
@@ -149,21 +205,21 @@ export async function checkEgoBrowser(): Promise<{ ok: boolean; version?: string
   });
 }
 
-/** Public setup data intentionally excludes keys, headers, base URLs and auth-file contents. */
+/** Setup exposes the user-entered custom address and status, never credential values. */
 export async function inspectEnvironment() {
   const [model, browser] = await Promise.all([
     (async () => {
       try {
-        const { available } = await modelCatalog();
+        const { available, defaultModel, providers, custom } = await modelCatalog();
         const models = available.map((m) => ({ id: `${m.provider}/${m.id}`, name: m.id, provider: m.provider }));
         try {
-          const selected = selectModel(available, selectionInput());
-          return { ok: true, label: `${selected.model.provider}/${selected.model.id}`, source: selected.source, models };
+          const selected = selectModel(available, selectionInput(defaultModel));
+          return { ok: true, label: `${selected.model.provider}/${selected.model.id}`, source: selected.source, models, providers, defaultModel, custom };
         } catch (error) {
-          return { ok: false, error: (error as Error).message, models };
+          return { ok: false, error: (error as Error).message, models, providers, defaultModel, custom };
         }
       } catch {
-        return { ok: false, error: "无法读取 pi 模型配置。请在终端打开 pi 检查授权和 models.json，然后重新检测。", models: [] };
+        return { ok: false, error: "无法读取本机模型配置。请检查 Digsight 设置或 Pi 配置后重新检测。", models: [], providers: [], defaultModel: undefined };
       }
     })(),
     checkEgoBrowser(),
